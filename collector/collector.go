@@ -131,6 +131,11 @@ func (c *graphiteCollector) parseMetricNameAndTags(name string) (string, prometh
 	return parsedName, labels, err
 }
 
+func graphiteToPrometheusName(name string) string {
+	name = strings.Replace(name, ".", ":::", -1)
+	return invalidMetricChars.ReplaceAllString(name, "_")
+}
+
 func (c *graphiteCollector) processLine(line string) {
 	line = strings.TrimSpace(line)
 	level.Debug(c.logger).Log("msg", "Incoming line", "line", line)
@@ -161,9 +166,9 @@ func (c *graphiteCollector) processLine(line string) {
 
 	var name string
 	if mappingPresent {
-		name = invalidMetricChars.ReplaceAllString(mapping.Name, "_")
+		name = graphiteToPrometheusName(mapping.Name)
 	} else {
-		name = invalidMetricChars.ReplaceAllString(parsedName, "_")
+		name = graphiteToPrometheusName(parsedName)
 	}
 
 	value, err := strconv.ParseFloat(parts[1], 64)
