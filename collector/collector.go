@@ -127,6 +127,7 @@ func (c *graphiteCollector) parseMetricNameAndTags(name string) (string, prometh
 
 func graphiteToPrometheusName(name string) string {
 	name = strings.Replace(name, ".", ":::", -1)
+	name = strings.Replace(name, "-", "___", -1)
 	return invalidMetricChars.ReplaceAllString(name, "_")
 }
 
