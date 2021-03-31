@@ -136,6 +136,27 @@ func graphiteToPrometheusName(name string) string {
 	return invalidMetricChars.ReplaceAllString(name, "_")
 }
 
+func gsplit(name string) map[string]string {
+	split := strings.Split(name, ".")
+	labels := make(map[string]string)
+	for i, part := range split {
+		labelKey := fmt.Sprintf("gsplit_%d", i)
+		labels[labelKey] = part
+	}
+	return labels
+}
+
+func mergeLabels(s1 map[string]string, s2 map[string]string) map[string]string {
+	ret := make(map[string]string)
+	for k, v := range s1 {
+		ret[k] = v
+	}
+	for k, v := range s2 {
+		ret[k] = v
+	}
+	return ret
+}
+
 func (c *graphiteCollector) processLine(line string) {
 	line = strings.TrimSpace(line)
 	level.Debug(c.logger).Log("msg", "Incoming line", "line", line)
@@ -152,6 +173,9 @@ func (c *graphiteCollector) processLine(line string) {
 	if err != nil {
 		level.Debug(c.logger).Log("msg", "Invalid tags", "line", line, "err", err.Error())
 	}
+
+	glabels := gsplit(originalName)
+	labels = mergeLabels(labels, glabels)
 
 	mapping, mappingLabels, mappingPresent := c.mapper.GetMapping(parsedName, mapper.MetricTypeGauge)
 
