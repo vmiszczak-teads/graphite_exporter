@@ -22,7 +22,6 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/go-kit/kit/log"
@@ -34,8 +33,6 @@ import (
 var invalidMetricChars = regexp.MustCompile("[^a-zA-Z0-9_:]")
 
 type graphiteCollector struct {
-	samples            map[string]*graphiteSample
-	mu                 *sync.Mutex
 	mapper             metricMapper
 	sampleCh           chan *graphiteSample
 	lineCh             chan string
@@ -50,10 +47,8 @@ type graphiteCollector struct {
 
 func NewGraphiteCollector(logger log.Logger, strictMatch bool, sampleExpiry time.Duration) *graphiteCollector {
 	c := &graphiteCollector{
-		sampleCh:    make(chan *graphiteSample),
+		sampleCh:    make(chan *graphiteSample, 50000000),
 		lineCh:      make(chan string),
-		mu:          &sync.Mutex{},
-		samples:     map[string]*graphiteSample{},
 		strictMatch: strictMatch,
 		logger:      logger,
 		tagParseFailures: prometheus.NewCounter(
@@ -76,7 +71,6 @@ func NewGraphiteCollector(logger log.Logger, strictMatch bool, sampleExpiry time
 		),
 	}
 	c.sampleExpiryMetric.Set(sampleExpiry.Seconds())
-	go c.processSamples()
 	go c.processLines()
 	return c
 }
@@ -219,60 +213,34 @@ func (c *graphiteCollector) processLine(line string) {
 	c.sampleCh <- &sample
 }
 
-func (c *graphiteCollector) processSamples() {
-	ticker := time.NewTicker(time.Minute).C
-
-	for {
-		select {
-		case sample, ok := <-c.sampleCh:
-			if sample == nil || !ok {
-				return
-			}
-			c.mu.Lock()
-			c.samples[sample.OriginalName] = sample
-			c.mu.Unlock()
-		case <-ticker:
-			// Garbage collect expired samples.
-			ageLimit := time.Now().Add(-c.sampleExpiry)
-			c.mu.Lock()
-			for k, sample := range c.samples {
-				if ageLimit.After(sample.Timestamp) {
-					delete(c.samples, k)
-				}
-			}
-			c.mu.Unlock()
-		}
-	}
-}
-
 // Collect implements prometheus.Collector.
 func (c graphiteCollector) Collect(ch chan<- prometheus.Metric) {
 	c.lastProcessed.Collect(ch)
 	c.sampleExpiryMetric.Collect(ch)
 	c.tagParseFailures.Collect(ch)
 
-	c.mu.Lock()
-	samples := make([]*graphiteSample, 0, len(c.samples))
-	for _, sample := range c.samples {
-		samples = append(samples, sample)
-	}
-	c.mu.Unlock()
-
-	ageLimit := time.Now().Add(-c.sampleExpiry)
-	for _, sample := range samples {
-		if ageLimit.After(sample.Timestamp) {
-			continue
+	max := cap(c.sampleCh)
+	count := 0
+	for {
+		select {
+		case sample := <-c.sampleCh:
+			count++
+			var metric prometheus.Metric
+			metric = prometheus.MustNewConstMetric(
+				prometheus.NewDesc(sample.Name, sample.Help, []string{}, sample.Labels),
+				sample.Type,
+				sample.Value,
+			)
+			if c.exposeTimestamps {
+				metric = prometheus.NewMetricWithTimestamp(sample.Timestamp, metric)
+			}
+			ch <- metric
+			if count > max {
+				return
+			}
+		default:
+			return
 		}
-		var metric prometheus.Metric
-		metric = prometheus.MustNewConstMetric(
-			prometheus.NewDesc(sample.Name, sample.Help, []string{}, sample.Labels),
-			sample.Type,
-			sample.Value,
-		)
-		if c.exposeTimestamps {
-			metric = prometheus.NewMetricWithTimestamp(sample.Timestamp, metric)
-		}
-		ch <- metric
 	}
 }
 

@@ -14,7 +14,6 @@
 package collector
 
 import (
-	"strings"
 	"testing"
 	"time"
 
@@ -223,22 +222,5 @@ func TestProcessLine(t *testing.T) {
 
 		c.strictMatch = testCase.strict
 		c.processLine(testCase.line)
-	}
-
-	c.sampleCh <- nil
-	for name, k := range testCases {
-		t.Run(name, func(t *testing.T) {
-			originalName := strings.Split(k.line, " ")[0]
-			sample := c.samples[originalName]
-			if k.willFail {
-				assert.Nil(t, sample, "Found %s", k.name)
-			} else {
-				if assert.NotNil(t, sample, "Missing %s", k.name) {
-					assert.Equal(t, k.name, sample.Name)
-					assert.Equal(t, k.sampleLabels, sample.Labels)
-					assert.Equal(t, k.value, sample.Value)
-				}
-			}
-		})
 	}
 }
