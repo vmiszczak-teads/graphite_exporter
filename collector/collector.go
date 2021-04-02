@@ -222,26 +222,34 @@ func (c graphiteCollector) Collect(ch chan<- prometheus.Metric) {
 
 	max := cap(c.sampleCh)
 	count := 0
-	for {
-		select {
-		case sample := <-c.sampleCh:
-			count++
-			var metric prometheus.Metric
-			metric = prometheus.MustNewConstMetric(
-				prometheus.NewDesc(sample.Name, sample.Help, []string{}, sample.Labels),
-				sample.Type,
-				sample.Value,
-			)
-			if c.exposeTimestamps {
-				metric = prometheus.NewMetricWithTimestamp(sample.Timestamp, metric)
-			}
-			ch <- metric
-			if count > max {
+	dedup := make(map[string]prometheus.Metric, len(c.sampleCh))
+
+	func() {
+		for {
+			select {
+			case sample := <-c.sampleCh:
+				count++
+				var metric prometheus.Metric
+				metric = prometheus.MustNewConstMetric(
+					prometheus.NewDesc(sample.Name, sample.Help, []string{}, sample.Labels),
+					sample.Type,
+					sample.Value,
+				)
+				if c.exposeTimestamps {
+					metric = prometheus.NewMetricWithTimestamp(sample.Timestamp, metric)
+				}
+				dedup[metric.Desc().String()] = metric
+				if count > max {
+					return
+				}
+			default:
 				return
 			}
-		default:
-			return
 		}
+	}()
+
+	for _, metric := range dedup {
+		ch <- metric
 	}
 }
 
