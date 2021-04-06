@@ -125,12 +125,6 @@ func (c *graphiteCollector) parseMetricNameAndTags(name string) (string, prometh
 	return parsedName, labels, err
 }
 
-func graphiteToPrometheusName(name string) string {
-	name = strings.Replace(name, ".", ":::", -1)
-	name = strings.Replace(name, "-", "___", -1)
-	return invalidMetricChars.ReplaceAllString(name, "_")
-}
-
 func gsplit(name string) map[string]string {
 	split := strings.Split(name, ".")
 	labels := make(map[string]string)
@@ -138,6 +132,10 @@ func gsplit(name string) map[string]string {
 		labelKey := fmt.Sprintf("gsplit_%d", i)
 		labels[labelKey] = part
 	}
+	if len(labels) > 0 {
+		labels[fmt.Sprintf("gsplit_%d",len(labels) - 1)] += "."
+	}
+
 	return labels
 }
 
@@ -185,9 +183,9 @@ func (c *graphiteCollector) processLine(line string) {
 
 	var name string
 	if mappingPresent {
-		name = graphiteToPrometheusName(mapping.Name)
+		name = invalidMetricChars.ReplaceAllString(mapping.Name, "_")
 	} else {
-		name = graphiteToPrometheusName(parsedName)
+		name = invalidMetricChars.ReplaceAllString(parsedName, "_")
 	}
 
 	value, err := strconv.ParseFloat(parts[1], 64)
